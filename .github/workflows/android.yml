@@ -4,43 +4,72 @@ name: Compilar APK Android
 on:
   workflow_dispatch:
   push:
-    branches: [main]
+    branches:
+      - main
+
+permissions:
+  contents: read
 
 jobs:
   build:
-    runs-on: ubuntu-latest
+    name: Generar APK Pokemon Battle Arena
+    runs-on: ubuntu-22.04
+    timeout-minutes: 30
+
+    env:
+      GODOT_VERSION: "4.4.1"
+      APK_NAME: "PokemonBattleArena.apk"
 
     steps:
       - name: Descargar proyecto
         uses: actions/checkout@v4
 
-      - name: Instalar Java
+      - name: Instalar Java 17
         uses: actions/setup-java@v4
         with:
           distribution: temurin
-          java-version: '17'
+          java-version: "17"
 
-      - name: Preparar Godot
+      - name: Configurar Android SDK
+        uses: android-actions/setup-android@v3
+
+      - name: Instalar componentes Android
+        run: |
+          yes | sdkmanager --licenses > /dev/null || true
+
+          sdkmanager \
+            "platform-tools" \
+            "platforms;android-35" \
+            "build-tools;35.0.0" \
+            "cmdline-tools;latest"
+
+      - name: Instalar Godot 4.4.1
         uses: chickensoft-games/setup-godot@v2
         with:
-          version: '4.4.1'
+          version: "4.4.1"
           use-dotnet: false
           include-templates: true
 
-      - name: Importar recursos
-        run: godot --headless --editor --path . --import
-
-      - name: Preparar exportación Android
+      - name: Verificar herramientas
         run: |
-          sudo apt-get update
-          sudo apt-get install -y adb
-          mkdir -p build
-          echo "ANDROID_HOME=$ANDROID_HOME" >> "$GITHUB_ENV"
-          echo "ANDROID_SDK_ROOT=$ANDROID_SDK_ROOT" >> "$GITHUB_ENV"
+          echo "=== GODOT ==="
+          godot --version
 
-      - name: Generar clave de prueba
+          echo "=== JAVA ==="
+          java -version
+
+          echo "=== ANDROID SDK ==="
+          echo "$ANDROID_HOME"
+
+          echo "=== ARCHIVOS DEL PROYECTO ==="
+          ls -la
+
+          test -f project.godot
+          test -f export_presets.cfg
+
+      - name: Configurar firma de prueba
         run: |
-          keytool -genkeypair -v \
+          keytool -genkeypair \
             -keystore "$RUNNER_TEMP/debug.keystore" \
             -alias androiddebugkey \
             -storepass android \
@@ -49,19 +78,37 @@ jobs:
             -keysize 2048 \
             -validity 10000 \
             -dname "CN=Android Debug,O=Android,C=US"
+
           echo "GODOT_ANDROID_KEYSTORE_DEBUG_PATH=$RUNNER_TEMP/debug.keystore" >> "$GITHUB_ENV"
           echo "GODOT_ANDROID_KEYSTORE_DEBUG_USER=androiddebugkey" >> "$GITHUB_ENV"
           echo "GODOT_ANDROID_KEYSTORE_DEBUG_PASSWORD=android" >> "$GITHUB_ENV"
 
-      - name: Compilar APK
+      - name: Preparar directorio de exportacion
         run: |
-          godot --headless --path . \
-            --export-debug "Android" \
-            build/PokemonBattleArena.apk
+          mkdir -p build
 
-      - name: Guardar APK
+          echo "=== PRESETS ==="
+          grep -nE '^\[preset|^name=|^platform=|^export_path=' export_presets.cfg || true
+
+      - name: Importar recursos del juego
+        run: |
+          godot --headless --editor --path . --import
+
+      - name: Compilar APK Android
+        run: |
+          godot --headless --verbose --path . \
+            --export-debug "Android" \
+            "build/$APK_NAME"
+
+      - name: Verificar APK
+        run: |
+          test -s "build/$APK_NAME"
+          ls -lh "build/$APK_NAME"
+
+      - name: Subir APK descargable
         uses: actions/upload-artifact@v4
         with:
           name: Pokemon-Battle-Arena-Android
           path: build/PokemonBattleArena.apk
-
+          if-no-files-found: error
+          retention-days: 14
