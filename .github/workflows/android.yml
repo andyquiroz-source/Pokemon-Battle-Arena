@@ -1,1 +1,67 @@
 
+name: Compilar APK Android
+
+on:
+  workflow_dispatch:
+  push:
+    branches: [main]
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Descargar proyecto
+        uses: actions/checkout@v4
+
+      - name: Instalar Java
+        uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '17'
+
+      - name: Preparar Godot
+        uses: chickensoft-games/setup-godot@v2
+        with:
+          version: '4.4.1'
+          use-dotnet: false
+          include-templates: true
+
+      - name: Importar recursos
+        run: godot --headless --editor --path . --import
+
+      - name: Preparar exportación Android
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y adb
+          mkdir -p build
+          echo "ANDROID_HOME=$ANDROID_HOME" >> "$GITHUB_ENV"
+          echo "ANDROID_SDK_ROOT=$ANDROID_SDK_ROOT" >> "$GITHUB_ENV"
+
+      - name: Generar clave de prueba
+        run: |
+          keytool -genkeypair -v \
+            -keystore "$RUNNER_TEMP/debug.keystore" \
+            -alias androiddebugkey \
+            -storepass android \
+            -keypass android \
+            -keyalg RSA \
+            -keysize 2048 \
+            -validity 10000 \
+            -dname "CN=Android Debug,O=Android,C=US"
+          echo "GODOT_ANDROID_KEYSTORE_DEBUG_PATH=$RUNNER_TEMP/debug.keystore" >> "$GITHUB_ENV"
+          echo "GODOT_ANDROID_KEYSTORE_DEBUG_USER=androiddebugkey" >> "$GITHUB_ENV"
+          echo "GODOT_ANDROID_KEYSTORE_DEBUG_PASSWORD=android" >> "$GITHUB_ENV"
+
+      - name: Compilar APK
+        run: |
+          godot --headless --path . \
+            --export-debug "Android" \
+            build/PokemonBattleArena.apk
+
+      - name: Guardar APK
+        uses: actions/upload-artifact@v4
+        with:
+          name: Pokemon-Battle-Arena-Android
+          path: build/PokemonBattleArena.apk
+
